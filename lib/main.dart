@@ -16,6 +16,10 @@ import 'viewmodels/asmaul_husna_view_model.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
+  // Prevent Google Fonts from downloading fonts at runtime in release mode.
+  // This avoids crashes/delays when internet is slow or unavailable.
+  // Fonts will fallback to system defaults if not bundled.
+  GoogleFonts.config.allowRuntimeFetching = true;
   runApp(const MyApp());
 }
 
