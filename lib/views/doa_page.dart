@@ -12,6 +12,7 @@ class DoaPage extends StatefulWidget {
 }
 
 class _DoaPageState extends State<DoaPage> {
+  final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
   @override
   void initState() {
@@ -20,6 +21,12 @@ class _DoaPageState extends State<DoaPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DoaViewModel>().fetchDoa();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -98,9 +105,17 @@ class _DoaPageState extends State<DoaPage> {
                         onRefresh: () async {
                           await vm.fetchDoa();
                         },
-                        child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: filteredDoa.length,
+                        child: Scrollbar(
+                          controller: _scrollController,
+                          thumbVisibility: true,
+                          interactive: true,
+                          thickness: 6.0,
+                          radius: const Radius.circular(8.0),
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredDoa.length,
                 itemBuilder: (context, index) {
                   final doa = filteredDoa[index];
                   return GestureDetector(
@@ -172,6 +187,7 @@ class _DoaPageState extends State<DoaPage> {
                     ),
                   );
                 },
+              ),
               ),
             ),
           ),

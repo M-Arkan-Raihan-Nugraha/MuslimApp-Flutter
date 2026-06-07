@@ -4,10 +4,23 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:muslim_app/viewmodels/chat_view_model.dart';
 import 'package:provider/provider.dart';
 
-class ChatScreen extends StatelessWidget {
-  final TextEditingController _controller = TextEditingController();
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
 
-  ChatScreen({super.key});
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _sendAction(ChatViewModel viewModel) {
     if (_controller.text.trim().isNotEmpty) {
@@ -65,67 +78,76 @@ class ChatScreen extends StatelessWidget {
                       ],
                     ),
                   )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: viewModel.messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = viewModel.messages[index];
-                      return Align(
-                        alignment: msg.isUser
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: msg.isUser
-                                ? colorScheme.primary
-                                : colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(16).copyWith(
-                              bottomRight: msg.isUser
-                                  ? const Radius.circular(4)
-                                  : null,
-                              bottomLeft: msg.isUser
-                                  ? null
-                                  : const Radius.circular(4),
+                : Scrollbar(
+                    controller: _scrollController,
+                    thumbVisibility: true,
+                    interactive: true,
+                    thickness: 6.0,
+                    radius: const Radius.circular(8.0),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                      padding: const EdgeInsets.all(16),
+                      itemCount: viewModel.messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = viewModel.messages[index];
+                        return Align(
+                          alignment: msg.isUser
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
+                            decoration: BoxDecoration(
+                              color: msg.isUser
+                                  ? colorScheme.primary
+                                  : colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(16).copyWith(
+                                bottomRight: msg.isUser
+                                    ? const Radius.circular(4)
+                                    : null,
+                                bottomLeft: msg.isUser
+                                    ? null
+                                    : const Radius.circular(4),
                               ),
-                            ],
-                          ),
-                          child: MarkdownBody(
-                            data: msg.text,
-                            styleSheet: MarkdownStyleSheet(
-                              p: GoogleFonts.poppins(
-                                fontSize: 13,
-                                color: msg.isUser
-                                    ? colorScheme.onPrimary
-                                    : colorScheme.onSurface,
-                              ),
-                              code: GoogleFonts.poppins(
-                                fontSize: 12,
-                                color: msg.isUser
-                                    ? colorScheme.onPrimary
-                                    : colorScheme.primary,
-                              ),
-                              codeblockDecoration: BoxDecoration(
-                                color: msg.isUser
-                                    ? colorScheme.onPrimary.withOpacity(0.1)
-                                    : colorScheme.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: MarkdownBody(
+                              data: msg.text,
+                              styleSheet: MarkdownStyleSheet(
+                                p: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: msg.isUser
+                                      ? colorScheme.onPrimary
+                                      : colorScheme.onSurface,
+                                ),
+                                code: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: msg.isUser
+                                      ? colorScheme.onPrimary
+                                      : colorScheme.primary,
+                                ),
+                                codeblockDecoration: BoxDecoration(
+                                  color: msg.isUser
+                                      ? colorScheme.onPrimary.withOpacity(0.1)
+                                      : colorScheme.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
           ),
           if (viewModel.isLoading)

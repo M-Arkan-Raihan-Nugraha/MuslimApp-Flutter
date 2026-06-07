@@ -3,15 +3,28 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/quran_detail_view_model.dart';
 
-class QuranDetailPage extends StatelessWidget {
+class QuranDetailPage extends StatefulWidget {
   final int nomorSurat;
 
   const QuranDetailPage({super.key, required this.nomorSurat});
 
   @override
+  State<QuranDetailPage> createState() => _QuranDetailPageState();
+}
+
+class _QuranDetailPageState extends State<QuranDetailPage> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => QuranDetailViewModel()..fetchDetail(nomorSurat),
+      create: (_) => QuranDetailViewModel()..fetchDetail(widget.nomorSurat),
       child: Scaffold(
         appBar: AppBar(
           title: Consumer<QuranDetailViewModel>(
@@ -91,9 +104,17 @@ class QuranDetailPage extends StatelessWidget {
             final surat = vm.detail!;
             final colorScheme = Theme.of(context).colorScheme;
 
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
+            return Scrollbar(
+              controller: _scrollController,
+              thumbVisibility: true,
+              interactive: true,
+              thickness: 6.0,
+              radius: const Radius.circular(8.0),
+              child: ListView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                padding: const EdgeInsets.all(16),
+                children: [
                   // Surat header card
                   Container(
                     padding: const EdgeInsets.all(20),
@@ -282,7 +303,8 @@ class QuranDetailPage extends StatelessWidget {
                       ),
                     ),
                   ),
-              ],
+                ],
+              ),
             );
           },
         ),

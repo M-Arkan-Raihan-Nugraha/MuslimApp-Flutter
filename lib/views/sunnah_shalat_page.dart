@@ -9,7 +9,14 @@ class SunnahShalatPage extends StatefulWidget {
 }
 
 class _SunnahShalatPageState extends State<SunnahShalatPage> {
+  final ScrollController _scrollController = ScrollController();
   int expandedIndex = -1;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -167,9 +174,17 @@ class _SunnahShalatPageState extends State<SunnahShalatPage> {
           ),
         ),
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: categories.length,
+      body: Scrollbar(
+        controller: _scrollController,
+        thumbVisibility: true,
+        interactive: true,
+        thickness: 6.0,
+        radius: const Radius.circular(8.0),
+        child: ListView.builder(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          padding: const EdgeInsets.all(16),
+          itemCount: categories.length,
         itemBuilder: (context, categoryIndex) {
           final categoryName = categories.keys.elementAt(categoryIndex);
           final categoryData = categories[categoryName]!;
@@ -342,6 +357,7 @@ class _SunnahShalatPageState extends State<SunnahShalatPage> {
             ),
           );
         },
+      ),
       ),
     );
   }

@@ -1,6 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/firestore_service.dart';
+import '../viewmodels/auth_view_model.dart';
 
 class RamadhanNotesPage extends StatefulWidget {
   const RamadhanNotesPage({super.key});
@@ -10,6 +17,17 @@ class RamadhanNotesPage extends StatefulWidget {
 }
 
 class _RamadhanNotesPageState extends State<RamadhanNotesPage> {
+  final ScrollController _scrollController = ScrollController();
+  final FirestoreService _firestoreService = FirestoreService();
+  bool _localeReady = false;
+  bool _isLoading = false;
+
+  // Selected date for the note
+  DateTime _selectedDate = DateTime.now();
+
+  // Track whether note is saved (read-only mode)
+  bool _isNoteSaved = false;
+
   // Shalat Wajib checkboxes
   final Map<String, bool> _shalatWajib = {
     'Subuh': false,
@@ -45,6 +63,11 @@ class _RamadhanNotesPageState extends State<RamadhanNotesPage> {
     decimalDigits: 0,
   );
 
+  // ── HELPERS ───────────────────────────────────────────────────────────
+
+  String get _dateKey => DateFormat('yyyy-MM-dd').format(_selectedDate);
+  String get _prefsKey => 'ramadhan_note_$_dateKey';
+
   String _formatCurrency(String value) {
     final cleanValue = value.replaceAll(RegExp(r'[^0-9]'), '');
     if (cleanValue.isEmpty) return '';
@@ -60,411 +83,871 @@ class _RamadhanNotesPageState extends State<RamadhanNotesPage> {
     );
   }
 
-  // ignore: unused_element
-  String _getRawInfaq() {
-    return _infaqCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+  int get completedShalat => _shalatWajib.values.where((v) => v).length;
+
+  /// Build a Map from the current form state
+  Map<String, dynamic> _buildNoteData() {
+    return {
+      'shalatWajib': Map<String, bool>.from(_shalatWajib),
+      'tarawihOption': _tarawihOption,
+      'penceramah': _penceramahCtrl.text,
+      'ceramahType': _ceramahType,
+      'ringkasan': _ringkasanCtrl.text,
+      'infaq': _infaqCtrl.text,
+      'date': _dateKey,
+    };
   }
 
-  int get completedShalat => _shalatWajib.values.where((v) => v).length;
+  /// Populate form fields from a data map
+  void _populateFromData(Map<String, dynamic> data) {
+    if (data['shalatWajib'] != null) {
+      final saved = Map<String, dynamic>.from(data['shalatWajib']);
+      for (final key in _shalatWajib.keys) {
+        _shalatWajib[key] = saved[key] == true;
+      }
+    }
+    _tarawihOption = data['tarawihOption'] as String? ?? 'Tidak shalat';
+    _penceramahCtrl.text = data['penceramah'] as String? ?? '';
+    _ceramahType = data['ceramahType'] as String? ?? 'Kuliah Subuh';
+    _ringkasanCtrl.text = data['ringkasan'] as String? ?? '';
+    _infaqCtrl.text = data['infaq'] as String? ?? '';
+  }
+
+  /// Clear all form fields to defaults
+  void _clearForm() {
+    _shalatWajib.updateAll((key, value) => false);
+    _tarawihOption = 'Tidak shalat';
+    _penceramahCtrl.clear();
+    _ceramahType = 'Kuliah Subuh';
+    _ringkasanCtrl.clear();
+    _infaqCtrl.clear();
+  }
+
+  /// Convert Firestore document map to standard JSON-encodable map
+  Map<String, dynamic> _makeEncodable(Map<String, dynamic> data) {
+    final copy = Map<String, dynamic>.from(data);
+    copy.forEach((key, value) {
+      if (value is Timestamp) {
+        copy[key] = value.toDate().toIso8601String();
+      } else if (value is Map) {
+        copy[key] = _makeEncodable(Map<String, dynamic>.from(value));
+      }
+    });
+    return copy;
+  }
+
+  // ── LIFECYCLE ─────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    initializeDateFormatting('id_ID').then((_) {
+      if (mounted) setState(() => _localeReady = true);
+    });
+    _loadNote();
+  }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _penceramahCtrl.dispose();
     _ringkasanCtrl.dispose();
     _infaqCtrl.dispose();
     super.dispose();
   }
 
-  void _showSummary() {
-    final progress = completedShalat / 5;
-    final progressPercentage = (progress * 100).toStringAsFixed(0);
+  // ── CRUD OPERATIONS ───────────────────────────────────────────────────
 
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+  /// READ: Load note for the selected date
+  Future<void> _loadNote() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Try loading from SharedPreferences (offline-first)
+      final prefs = await SharedPreferences.getInstance();
+      final localJson = prefs.getString(_prefsKey);
+
+      if (localJson != null) {
+        final data = jsonDecode(localJson) as Map<String, dynamic>;
+        if (mounted) {
+          setState(() {
+            _populateFromData(data);
+            _isNoteSaved = true;
+          });
+        }
+      } else {
+        // 2. Try loading from Firestore (if logged in)
+        if (mounted) {
+          final authVm = Provider.of<AuthViewModel>(context, listen: false);
+          if (authVm.isLoggedIn) {
+            final doc = await _firestoreService.getNote(
+              authVm.user!.uid,
+              _dateKey,
+            );
+            if (doc.exists && doc.data() != null) {
+              final data = doc.data()!;
+              final encodableData = _makeEncodable(data);
+              // Cache locally for offline access
+              await prefs.setString(_prefsKey, jsonEncode(encodableData));
+              if (mounted) {
+                setState(() {
+                  _populateFromData(encodableData);
+                  _isNoteSaved = true;
+                });
+              }
+            } else {
+              if (mounted) {
+                setState(() {
+                  _clearForm();
+                  _isNoteSaved = false;
+                });
+              }
+            }
+          } else {
+            if (mounted) {
+              setState(() {
+                _clearForm();
+                _isNoteSaved = false;
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading note: $e');
+      if (mounted) {
+        setState(() {
+          _clearForm();
+          _isNoteSaved = false;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// CREATE / UPDATE: Save note to local + cloud
+  Future<void> _saveNote() async {
+    final noteData = _buildNoteData();
+
+    try {
+      // 1. Save to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, jsonEncode(noteData));
+
+      // 2. Save to Firestore (if logged in)
+      if (mounted) {
+        final authVm = Provider.of<AuthViewModel>(context, listen: false);
+        if (authVm.isLoggedIn) {
+          await _firestoreService.saveNote(
+            authVm.user!.uid,
+            _dateKey,
+            noteData,
+          );
+        }
+      }
+
+      if (mounted) {
+        setState(() => _isNoteSaved = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
               children: [
-                // Header with gradient
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Theme.of(context).colorScheme.primary,
-                        Theme.of(context).colorScheme.primary.withOpacity(0.85),
-                      ],
-                    ),
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(20),
-                      topRight: Radius.circular(20),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.summarize_rounded,
-                        size: 48,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Ringkasan Ibadah Hari Ini',
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Content
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Shalat Wajib Card
-                      _buildSummaryCard(
-                        icon: Icons.access_time_filled_rounded,
-                        title: 'Shalat Wajib',
-                        child: Column(
-                          children: [
-                            // Progress bar
-                            LinearProgressIndicator(
-                              value: progress,
-                              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Theme.of(context).colorScheme.primary,
-                              ),
-                              minHeight: 12,
-                            ),
-                            const SizedBox(height: 10),
-                            
-                            // Stats row
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '$completedShalat dari 5 shalat',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                Text(
-                                  '$progressPercentage%',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            
-                            // Prayer badges
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: _shalatWajib.entries.map((entry) {
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: entry.value
-                                        ? Theme.of(context).colorScheme.primary.withOpacity(0.15)
-                                        : Theme.of(context).colorScheme.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: entry.value
-                                          ? Theme.of(context).colorScheme.primary
-                                          : Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        entry.value
-                                            ? Icons.check_circle_rounded
-                                            : Icons.radio_button_unchecked_rounded,
-                                        size: 14,
-                                        color: entry.value
-                                            ? Theme.of(context).colorScheme.primary
-                                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        entry.key,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: entry.value
-                                              ? Theme.of(context).colorScheme.primary
-                                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Tarawih Card
-                      _buildSummaryCard(
-                        icon: Icons.nights_stay_rounded,
-                        title: 'Shalat Tarawih',
-                        child: Row(
-                          children: [
-                            Icon(
-                              _tarawihOption == 'Tidak shalat'
-                                  ? Icons.cancel_rounded
-                                  : Icons.check_circle_rounded,
-                              size: 20,
-                              color: _tarawihOption == 'Tidak shalat'
-                                  ? Theme.of(context).colorScheme.error
-                                  : Theme.of(context).colorScheme.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _tarawihOption,
-                              style: GoogleFonts.poppins(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: _tarawihOption == 'Tidak shalat'
-                                    ? Theme.of(context).colorScheme.error
-                                    : Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      // Ceramah Card (if filled)
-                      if (_penceramahCtrl.text.isNotEmpty || _ringkasanCtrl.text.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        _buildSummaryCard(
-                          icon: Icons.menu_book_rounded,
-                          title: 'Ceramah / Kajian',
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (_penceramahCtrl.text.isNotEmpty) ...[
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.person_rounded,
-                                      size: 16,
-                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Penceramah: ',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Text(
-                                        _penceramahCtrl.text,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.category_rounded,
-                                      size: 16,
-                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Tipe: ',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                    Text(
-                                      _ceramahType,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                              if (_ringkasanCtrl.text.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                Divider(),
-                                const SizedBox(height: 8),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Icon(
-                                      Icons.notes_rounded,
-                                      size: 16,
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        _ringkasanCtrl.text,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          height: 1.5,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                
-                // Infaq Card (if filled)
-                if (_infaqCtrl.text.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _buildSummaryCard(
-                    icon: Icons.volunteer_activism_rounded,
-                    title: 'Infaq & Sedekah',
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Theme.of(context).colorScheme.secondary.withOpacity(0.15),
-                          ),
-                          child: Icon(
-                            Icons.payments_rounded,
-                            size: 24,
-                            color: Theme.of(context).colorScheme.secondary,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Total Infaq Hari Ini',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _infaqCtrl.text.isNotEmpty
-                                    ? _infaqCtrl.text
-                                    : 'Rp 0',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.secondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(
-                          Icons.check_circle_rounded,
-                          size: 24,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                
-                // Close button
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.check_circle_rounded),
-                      label: Text('Alhamdulillah'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Catatan berhasil disimpan!',
+                  style: GoogleFonts.poppins(fontSize: 13),
                 ),
               ],
             ),
+            backgroundColor: Colors.green.shade600,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 2),
           ),
-        ),
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      debugPrint('Error saving note: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Gagal menyimpan catatan',
+              style: GoogleFonts.poppins(fontSize: 13),
+            ),
+            backgroundColor: Colors.red.shade600,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
-  Widget _buildSummaryCard({
-    required IconData icon,
-    required String title,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+  /// DELETE: Remove note from local + cloud
+  Future<void> _resetNote() async {
+    try {
+      // 1. Remove from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsKey);
+
+      // 2. Remove from Firestore (if logged in)
+      if (mounted) {
+        final authVm = Provider.of<AuthViewModel>(context, listen: false);
+        if (authVm.isLoggedIn) {
+          await _firestoreService.deleteNote(authVm.user!.uid, _dateKey);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isNoteSaved = false;
+          _clearForm();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Catatan hari ini direset',
+                  style: GoogleFonts.poppins(fontSize: 13),
+                ),
+              ],
+            ),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error resetting note: $e');
+    }
+  }
+
+  // ── READ-ONLY SUMMARY VIEW ──────────────────────────────────────────
+  Widget _buildReadOnlyView(ColorScheme colorScheme) {
+    final progress = completedShalat / 5;
+    final progressPercentage = (progress * 100).toStringAsFixed(0);
+
+    return Column(
+      children: [
+        // Status banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.green.shade600,
+                Colors.green.shade400,
+              ],
+            ),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
             children: [
-              Icon(
-                icon,
-                size: 18,
-                color: Theme.of(context).colorScheme.primary,
+              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Catatan sudah tersimpan',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+              TextButton.icon(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text(
+                        'Edit Catatan?',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                      ),
+                      content: Text(
+                        'Apakah kamu ingin mengedit catatan hari ini?',
+                        style: GoogleFonts.poppins(fontSize: 13),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text('Batal'),
+                        ),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            setState(() {
+                              _isNoteSaved = false;
+                            });
+                          },
+                          child: Text('Edit'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.edit_rounded, size: 16, color: Colors.white70),
+                label: Text(
+                  'Edit',
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white70,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+
+        // Shalat Wajib Summary Card
+        _buildSectionCard(
+          context,
+          icon: Icons.access_time_filled_rounded,
+          title: 'Shalat Wajib',
+          child: Column(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                  minHeight: 10,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '$completedShalat dari 5 shalat',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '$progressPercentage%',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _shalatWajib.entries.map((entry) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: entry.value
+                          ? colorScheme.primary.withOpacity(0.15)
+                          : colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: entry.value
+                            ? colorScheme.primary
+                            : colorScheme.outline.withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          entry.value
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          size: 14,
+                          color: entry.value
+                              ? colorScheme.primary
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          entry.key,
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: entry.value
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Tarawih Summary Card
+        _buildSectionCard(
+          context,
+          icon: Icons.nights_stay_rounded,
+          title: 'Shalat Tarawih',
+          child: Row(
+            children: [
+              Icon(
+                _tarawihOption == 'Tidak shalat'
+                    ? Icons.cancel_rounded
+                    : Icons.check_circle_rounded,
+                size: 22,
+                color: _tarawihOption == 'Tidak shalat'
+                    ? colorScheme.error
+                    : colorScheme.primary,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                _tarawihOption,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _tarawihOption == 'Tidak shalat'
+                      ? colorScheme.error
+                      : colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Ceramah Summary Card
+        _buildSectionCard(
+          context,
+          icon: Icons.menu_book_rounded,
+          title: 'Ceramah / Kajian',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildReadOnlyRow(
+                Icons.person_rounded,
+                'Penceramah',
+                _penceramahCtrl.text.isNotEmpty ? _penceramahCtrl.text : '-',
+                colorScheme,
+              ),
+              const SizedBox(height: 8),
+              _buildReadOnlyRow(
+                Icons.category_rounded,
+                'Tipe',
+                _ceramahType,
+                colorScheme,
+              ),
+              if (_ringkasanCtrl.text.isNotEmpty) ...[
+                const Divider(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.notes_rounded,
+                      size: 16,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Ringkasan',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _ringkasanCtrl.text,
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Infaq Summary Card
+        _buildSectionCard(
+          context,
+          icon: Icons.volunteer_activism_rounded,
+          title: 'Infaq & Sedekah',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colorScheme.secondary.withOpacity(0.15),
+                ),
+                child: Icon(
+                  Icons.payments_rounded,
+                  size: 24,
+                  color: colorScheme.secondary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Total Infaq Hari Ini',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _infaqCtrl.text.isNotEmpty ? _infaqCtrl.text : 'Rp 0',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.check_circle_rounded,
+                size: 24,
+                color: colorScheme.primary,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _buildReadOnlyRow(
+    IconData icon,
+    String label,
+    String value,
+    ColorScheme colorScheme,
+  ) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Text(
+          '$label: ',
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── EDIT FORM VIEW ──────────────────────────────────────────────────
+  Widget _buildEditFormView(ColorScheme colorScheme) {
+    return Column(
+      children: [
+        // Shalat Wajib Section
+        _buildSectionCard(
+          context,
+          icon: Icons.access_time_filled_rounded,
+          title: 'Shalat Wajib',
+          child: Column(
+            children: _shalatWajib.entries.map((entry) {
+              return CheckboxListTile(
+                title: Text(
+                  entry.key,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                value: entry.value,
+                onChanged: (value) {
+                  setState(() {
+                    _shalatWajib[entry.key] = value ?? false;
+                  });
+                },
+                activeColor: colorScheme.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Progress indicator
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colorScheme.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              LinearProgressIndicator(
+                value: completedShalat / 5,
+                backgroundColor: colorScheme.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                minHeight: 8,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$completedShalat dari 5 shalat wajib',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Shalat Tarawih Section
+        _buildSectionCard(
+          context,
+          icon: Icons.nights_stay_rounded,
+          title: 'Shalat Tarawih',
+          child: Column(
+            children: _tarawihOptions.map((option) {
+              return RadioListTile<String>(
+                title: Text(
+                  option,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                value: option,
+                groupValue: _tarawihOption,
+                onChanged: (value) {
+                  setState(() {
+                    _tarawihOption = value!;
+                  });
+                },
+                activeColor: colorScheme.primary,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Ceramah Section
+        _buildSectionCard(
+          context,
+          icon: Icons.menu_book_rounded,
+          title: 'Ceramah / Kajian',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _penceramahCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Nama Penceramah',
+                  prefixIcon: const Icon(Icons.person_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                style: GoogleFonts.poppins(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _ceramahType,
+                decoration: InputDecoration(
+                  labelText: 'Tipe Ceramah',
+                  prefixIcon: const Icon(Icons.category_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                items: _ceramahTypes.map((type) {
+                  return DropdownMenuItem(
+                    value: type,
+                    child: Text(
+                      type,
+                      style: GoogleFonts.poppins(fontSize: 14),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _ceramahType = value!;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _ringkasanCtrl,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  labelText: 'Ringkasan Ceramah',
+                  alignLabelWithHint: true,
+                  prefixIcon: const Icon(Icons.notes_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                style: GoogleFonts.poppins(fontSize: 13, height: 1.5),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Infaq Section
+        _buildSectionCard(
+          context,
+          icon: Icons.volunteer_activism_rounded,
+          title: 'Infaq & Sedekah',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.secondary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 18,
+                      color: colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Catat infaq dan sedekah hari ini',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: colorScheme.secondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _infaqCtrl,
+                keyboardType: TextInputType.number,
+                onChanged: _onInfaqChanged,
+                decoration: InputDecoration(
+                  labelText: 'Jumlah Infaq',
+                  hintText: 'Contoh: 50.000',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: colorScheme.secondary.withOpacity(0.05),
+                ),
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.secondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Action buttons: Simpan + Reset side by side
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _saveNote,
+                icon: const Icon(Icons.save_rounded),
+                label: Text(
+                  'Simpan',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _resetNote,
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(
+                  'Reset',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colorScheme.error,
+                  foregroundColor: colorScheme.onError,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+      ],
     );
   }
 
@@ -481,262 +964,156 @@ class _RamadhanNotesPageState extends State<RamadhanNotesPage> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.summarize_rounded),
-            onPressed: _showSummary,
-            tooltip: 'Lihat Ringkasan',
-          ),
-        ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Shalat Wajib Section
-          _buildSectionCard(
-            context,
-            icon: Icons.access_time_filled_rounded,
-            title: 'Shalat Wajib',
-            child: Column(
-              children: _shalatWajib.entries.map((entry) {
-                return CheckboxListTile(
-                  title: Text(
-                    entry.key,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Scrollbar(
+              controller: _scrollController,
+              thumbVisibility: true,
+              interactive: true,
+              thickness: 6.0,
+              radius: const Radius.circular(8.0),
+              child: ListView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Day Picker
+                  _buildDatePicker(colorScheme),
+                  const SizedBox(height: 16),
+                  if (_isNoteSaved)
+                    _buildReadOnlyView(colorScheme)
+                  else
+                    _buildEditFormView(colorScheme),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Pilih Tanggal Catatan',
+      cancelText: 'Batal',
+      confirmText: 'Pilih',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme,
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+        _clearForm();
+        _isNoteSaved = false;
+      });
+      // Load note for the newly selected date
+      _loadNote();
+    }
+  }
+
+  Widget _buildDatePicker(ColorScheme colorScheme) {
+    final dateFormatFull = _localeReady
+        ? DateFormat('EEEE, d MMMM yyyy', 'id_ID')
+        : DateFormat('dd/MM/yyyy');
+    final isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
+
+    return InkWell(
+      onTap: _pickDate,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              colorScheme.primary,
+              colorScheme.primary.withOpacity(0.85),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.primary.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.calendar_today_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isToday ? 'Hari Ini' : 'Tanggal Dipilih',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: 11,
                       fontWeight: FontWeight.w500,
+                      color: Colors.white.withOpacity(0.8),
                     ),
                   ),
-                  value: entry.value,
-                  onChanged: (value) {
-                    setState(() {
-                      _shalatWajib[entry.key] = value ?? false;
-                    });
-                  },
-                  activeColor: colorScheme.primary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Progress indicator
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: colorScheme.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                LinearProgressIndicator(
-                  value: completedShalat / 5,
-                  backgroundColor: colorScheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
-                  minHeight: 8,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '$completedShalat dari 5 shalat wajib',
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Shalat Tarawih Section
-          _buildSectionCard(
-            context,
-            icon: Icons.nights_stay_rounded,
-            title: 'Shalat Tarawih',
-            child: Column(
-              children: _tarawihOptions.map((option) {
-                return RadioListTile<String>(
-                  title: Text(
-                    option,
+                  const SizedBox(height: 2),
+                  Text(
+                    dateFormatFull.format(_selectedDate),
                     style: GoogleFonts.poppins(
-                      fontSize: 13,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.edit_calendar_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Ubah',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
                       fontWeight: FontWeight.w500,
+                      color: Colors.white,
                     ),
                   ),
-                  value: option,
-                  groupValue: _tarawihOption,
-                  onChanged: (value) {
-                    setState(() {
-                      _tarawihOption = value!;
-                    });
-                  },
-                  activeColor: colorScheme.primary,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                );
-              }).toList(),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-
-          // Ceramah Section
-          _buildSectionCard(
-            context,
-            icon: Icons.menu_book_rounded,
-            title: 'Ceramah / Kajian',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Penceramah input
-                TextField(
-                  controller: _penceramahCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Nama Penceramah',
-                    prefixIcon: const Icon(Icons.person_rounded),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  style: GoogleFonts.poppins(fontSize: 14),
-                ),
-                const SizedBox(height: 16),
-
-                // Ceramah type dropdown
-                DropdownButtonFormField<String>(
-                  value: _ceramahType,
-                  decoration: InputDecoration(
-                    labelText: 'Tipe Ceramah',
-                    prefixIcon: const Icon(Icons.category_rounded),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  items: _ceramahTypes.map((type) {
-                    return DropdownMenuItem(
-                      value: type,
-                      child: Text(
-                        type,
-                        style: GoogleFonts.poppins(fontSize: 14),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _ceramahType = value!;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Ringkasan ceramah
-                TextField(
-                  controller: _ringkasanCtrl,
-                  maxLines: 5,
-                  decoration: InputDecoration(
-                    labelText: 'Ringkasan Ceramah',
-                    alignLabelWithHint: true,
-                    prefixIcon: const Icon(Icons.notes_rounded),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  style: GoogleFonts.poppins(fontSize: 13, height: 1.5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Infaq Section
-          _buildSectionCard(
-            context,
-            icon: Icons.volunteer_activism_rounded,
-            title: 'Infaq & Sedekah',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: colorScheme.secondary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        size: 18,
-                        color: colorScheme.secondary,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Catat infaq dan sedekah hari ini',
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: colorScheme.secondary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _infaqCtrl,
-                  keyboardType: TextInputType.number,
-                  onChanged: _onInfaqChanged,
-                  decoration: InputDecoration(
-                    labelText: 'Jumlah Infaq',
-                    hintText: 'Contoh: 50.000',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: colorScheme.secondary.withOpacity(0.05),
-                  ),
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.secondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Reset button
-          ElevatedButton.icon(
-            onPressed: () {
-              setState(() {
-                _shalatWajib.updateAll((key, value) => false);
-                _tarawihOption = 'Tidak shalat';
-                _penceramahCtrl.clear();
-                _ceramahType = 'Kuliah Subuh';
-                _ringkasanCtrl.clear();
-                _infaqCtrl.clear();
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Catatan hari ini direset'),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            },
-            icon: const Icon(Icons.refresh_rounded),
-            label: Text('Reset Catatan Hari Ini'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colorScheme.error,
-              foregroundColor: colorScheme.onError,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

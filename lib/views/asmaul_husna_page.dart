@@ -11,6 +11,7 @@ class AsmaulHusnaPage extends StatefulWidget {
 }
 
 class _AsmaulHusnaPageState extends State<AsmaulHusnaPage> {
+  final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
 
   @override
@@ -19,6 +20,12 @@ class _AsmaulHusnaPageState extends State<AsmaulHusnaPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AsmaulHusnaViewModel>().fetchAsmaulHusna();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -135,8 +142,16 @@ class _AsmaulHusnaPageState extends State<AsmaulHusnaPage> {
                             onRefresh: () async {
                               await viewModel.fetchAsmaulHusna();
                             },
-                            child: GridView.builder(
-                              padding: const EdgeInsets.all(16),
+                            child: Scrollbar(
+                              controller: _scrollController,
+                              thumbVisibility: true,
+                              interactive: true,
+                              thickness: 6.0,
+                              radius: const Radius.circular(8.0),
+                              child: GridView.builder(
+                                controller: _scrollController,
+                                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                                padding: const EdgeInsets.all(16),
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
                                 crossAxisSpacing: 12,
@@ -228,6 +243,7 @@ class _AsmaulHusnaPageState extends State<AsmaulHusnaPage> {
                                   ),
                                 );
                               },
+                            ),
                             ),
                           ),
           ),

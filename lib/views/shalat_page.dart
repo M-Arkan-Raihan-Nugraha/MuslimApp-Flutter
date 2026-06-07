@@ -12,6 +12,7 @@ class ShalatPage extends StatefulWidget {
 }
 
 class _ShalatPageState extends State<ShalatPage> {
+  final ScrollController _scrollController = ScrollController();
   int get cityId => context.read<ShalatViewModel>().selectedCityId;
   String get cityName => context.read<ShalatViewModel>().selectedCityName;
   late int year;
@@ -277,6 +278,12 @@ class _ShalatPageState extends State<ShalatPage> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final vm = context.watch<ShalatViewModel>();
     final colorScheme = Theme.of(context).colorScheme;
@@ -446,9 +453,17 @@ class _ShalatPageState extends State<ShalatPage> {
                       month: month,
                     );
                   },
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: vm.schedules.length,
+                  child: Scrollbar(
+                    controller: _scrollController,
+                    thumbVisibility: true,
+                    interactive: true,
+                    thickness: 6.0,
+                    radius: const Radius.circular(8.0),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                      padding: const EdgeInsets.all(16),
+                      itemCount: vm.schedules.length,
                     itemBuilder: (_, i) {
                       final d = vm.schedules[i];
                       return GestureDetector(
@@ -548,6 +563,7 @@ class _ShalatPageState extends State<ShalatPage> {
                         ),
                       );
                     },
+                  ),
                   ),
                 ),
     );

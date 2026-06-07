@@ -96,7 +96,7 @@ class HomePage extends StatelessWidget {
       backgroundColor: const Color(0xFFF8F9FA),
       body: SafeArea(
         child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             // Header Section and Prayer Schedule Card combined for proper Z-ordering
             SliverToBoxAdapter(

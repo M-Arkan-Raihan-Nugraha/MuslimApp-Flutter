@@ -12,6 +12,7 @@ class HadistPage extends StatefulWidget {
 }
 
 class _HadistPageState extends State<HadistPage> {
+  final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
 
   @override
@@ -20,6 +21,12 @@ class _HadistPageState extends State<HadistPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<HadistViewModel>().fetchBooks();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -135,9 +142,17 @@ class _HadistPageState extends State<HadistPage> {
                             onRefresh: () async {
                               await viewModel.fetchBooks();
                             },
-                            child: ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              itemCount: filteredBooks.length,
+                            child: Scrollbar(
+                              controller: _scrollController,
+                              thumbVisibility: true,
+                              interactive: true,
+                              thickness: 6.0,
+                              radius: const Radius.circular(8.0),
+                              child: ListView.builder(
+                                controller: _scrollController,
+                                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                itemCount: filteredBooks.length,
                               itemBuilder: (context, index) {
                                 final book = filteredBooks[index];
                                 return Container(
@@ -202,6 +217,7 @@ class _HadistPageState extends State<HadistPage> {
                                   ),
                                 );
                               },
+                            ),
                             ),
                           ),
           ),

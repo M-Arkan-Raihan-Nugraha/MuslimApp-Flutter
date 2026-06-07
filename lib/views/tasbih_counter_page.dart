@@ -111,166 +111,174 @@ class _TasbihCounterPageState extends State<TasbihCounterPage> {
         ),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 32),
-            // Target selector
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: _targets.map((target) {
-                final isSelected = target == _target;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _target = target;
-                    });
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? colorScheme.primary : colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '$target',
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected ? colorScheme.onPrimary : colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 40),
-            // Count display
-            Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    colorScheme.primary,
-                    colorScheme.primary.withOpacity(0.85),
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.primary.withOpacity(0.3),
-                    blurRadius: 30,
-                    spreadRadius: 5,
-                  ),
-                ],
-              ),
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  const SizedBox(height: 32),
+                  // Target selector
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: _targets.map((target) {
+                      final isSelected = target == _target;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _target = target;
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? colorScheme.primary : colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '$target',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected ? colorScheme.onPrimary : colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 40),
+                  // Count display
+                  Container(
+                    width: 200,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          colorScheme.primary,
+                          colorScheme.primary.withOpacity(0.85),
+                        ],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.primary.withOpacity(0.3),
+                          blurRadius: 30,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '$_count',
+                          style: GoogleFonts.poppins(
+                            fontSize: 56,
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onPrimary,
+                          ),
+                        ),
+                        Text(
+                          '/ $_target',
+                          style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            color: colorScheme.onPrimary.withOpacity(0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  // Progress bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    child: LinearProgressIndicator(
+                      value: progress.clamp(0.0, 1.0),
+                      backgroundColor: colorScheme.surfaceContainerHighest,
+                      valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                      minHeight: 8,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    '$_count',
+                    '${(progress * 100).toStringAsFixed(0)}%',
                     style: GoogleFonts.poppins(
-                      fontSize: 56,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onPrimary,
+                      fontSize: 14,
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  Text(
-                    '/ $_target',
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      color: colorScheme.onPrimary.withOpacity(0.8),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 40),
-            // Progress bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: LinearProgressIndicator(
-                value: progress.clamp(0.0, 1.0),
-                backgroundColor: colorScheme.surfaceContainerHighest,
-                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
-                minHeight: 8,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${(progress * 100).toStringAsFixed(0)}%',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const Spacer(),
-            // Controls
-            Padding(
-              padding: const EdgeInsets.only(bottom: 40),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Reset button
-                  GestureDetector(
-                    onTap: _reset,
-                    child: Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: colorScheme.surfaceContainerHighest,
-                      ),
-                      child: Icon(
-                        Icons.refresh_rounded,
-                        size: 28,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 32),
-                  // Count button
-                  GestureDetector(
-                    onTap: _count >= _target ? null : _increment,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: _count >= _target
-                            ? LinearGradient(
-                                colors: [
-                                  colorScheme.surfaceContainerHighest,
-                                  colorScheme.surfaceContainerHighest,
-                                ],
-                              )
-                            : LinearGradient(
-                                colors: [
-                                  colorScheme.primary,
-                                  colorScheme.primary.withOpacity(0.85),
-                                ],
-                              ),
-                        boxShadow: _count >= _target
-                            ? []
-                            : [
-                                BoxShadow(
-                                  color: colorScheme.primary.withOpacity(0.3),
-                                  blurRadius: 15,
-                                  offset: const Offset(0, 5),
-                                ),
-                              ],
-                      ),
-                      child: Icon(
-                        _count >= _target ? Icons.check_rounded : Icons.add_rounded,
-                        size: 48,
-                        color: _count >= _target
-                            ? colorScheme.onSurfaceVariant
-                            : colorScheme.onPrimary,
-                      ),
+                  const Spacer(),
+                  // Controls
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 40),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Reset button
+                        GestureDetector(
+                          onTap: _reset,
+                          child: Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colorScheme.surfaceContainerHighest,
+                            ),
+                            child: Icon(
+                              Icons.refresh_rounded,
+                              size: 28,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 32),
+                        // Count button
+                        GestureDetector(
+                          onTap: _count >= _target ? null : _increment,
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: _count >= _target
+                                  ? LinearGradient(
+                                      colors: [
+                                        colorScheme.surfaceContainerHighest,
+                                        colorScheme.surfaceContainerHighest,
+                                      ],
+                                    )
+                                  : LinearGradient(
+                                      colors: [
+                                        colorScheme.primary,
+                                        colorScheme.primary.withOpacity(0.85),
+                                      ],
+                                    ),
+                              boxShadow: _count >= _target
+                                  ? []
+                                  : [
+                                      BoxShadow(
+                                        color: colorScheme.primary.withOpacity(0.3),
+                                        blurRadius: 15,
+                                        offset: const Offset(0, 5),
+                                      ),
+                                    ],
+                            ),
+                            child: Icon(
+                              _count >= _target ? Icons.check_rounded : Icons.add_rounded,
+                              size: 48,
+                              color: _count >= _target
+                                  ? colorScheme.onSurfaceVariant
+                                  : colorScheme.onPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

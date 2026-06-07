@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:muslim_app/views/kiblat_page.dart';
+import 'package:muslim_app/views/settings_page.dart';
 
 import 'home_page.dart';
 import 'quran_page.dart';
 import 'doa_page.dart';
 import 'shalat_page.dart';
 import 'sunnah_shalat_page.dart';
-import 'about_page.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -25,7 +25,7 @@ class _MainPageState extends State<MainPage> {
     QuranPage(),
     DoaPage(),
     KiblatPage(),
-    AboutPage(),
+    SettingsPage(),
   ];
 
   // Map pages index to bottom nav index (or -1 if not in nav)
@@ -37,7 +37,7 @@ class _MainPageState extends State<MainPage> {
       case 3: return 2; // Quran
       case 4: return 3; // Doa
       case 5: return -1; // Kiblat - not in bottom nav
-      case 6: return 4; // About
+      case 6: return 4; // Settings
       default: return 0;
     }
   }
@@ -49,7 +49,7 @@ class _MainPageState extends State<MainPage> {
       case 1: return 1; // Shalat
       case 2: return 3; // Quran
       case 3: return 4; // Doa
-      case 4: return 6; // About
+      case 4: return 6; // Settings
       default: return 0;
     }
   }
@@ -110,9 +110,9 @@ class _MainPageState extends State<MainPage> {
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(
-                    _getBottomNavIndex(index) == 4 ? Icons.info_rounded : Icons.info_outline,
+                    _getBottomNavIndex(index) == 4 ? Icons.settings : Icons.settings_outlined,
                   ),
-                  label: 'About',
+                  label: 'Setting',
                 ),
               ],
             ),

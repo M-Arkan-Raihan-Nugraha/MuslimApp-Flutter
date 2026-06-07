@@ -12,6 +12,7 @@ class QuranPage extends StatefulWidget {
 }
 
 class _QuranPageState extends State<QuranPage> {
+  final ScrollController _scrollController = ScrollController();
   String _searchQuery = '';
   @override
   void initState() {
@@ -20,6 +21,12 @@ class _QuranPageState extends State<QuranPage> {
     if (vm.suratList.isEmpty) {
       vm.fetchAllSurat();
     }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -98,9 +105,17 @@ class _QuranPageState extends State<QuranPage> {
                         onRefresh: () async {
                           await vm.fetchAllSurat();
                         },
-                        child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: filteredSurat.length,
+                        child: Scrollbar(
+                          controller: _scrollController,
+                          thumbVisibility: true,
+                          interactive: true,
+                          thickness: 6.0,
+                          radius: const Radius.circular(8.0),
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredSurat.length,
                 itemBuilder: (_, i) {
                   final s = filteredSurat[i];
                   return GestureDetector(
@@ -222,6 +237,7 @@ class _QuranPageState extends State<QuranPage> {
                   );
                 },
               ),
+            ),
             ),
           ),
         ],

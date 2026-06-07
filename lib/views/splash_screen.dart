@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +20,7 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _iconAnimation;
   late Animation<double> _textAnimation;
   late Animation<double> _subtitleAnimation;
+  Timer? _navigationTimer;
 
   @override
   void initState() {
@@ -60,17 +62,18 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
-    // Start animations with staggered timing
+    // Start animations with staggered timing safely
     _iconController.forward();
     Future.delayed(const Duration(milliseconds: 200), () {
-      _textController.forward();
+      if (mounted) _textController.forward();
     });
     Future.delayed(const Duration(milliseconds: 400), () {
-      _subtitleController.forward();
+      if (mounted) _subtitleController.forward();
     });
 
     // Pre-fetch shalat schedule and city list in background
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       try {
         final vm = context.read<ShalatViewModel>();
         final now = DateTime.now();
@@ -83,8 +86,8 @@ class _SplashScreenState extends State<SplashScreen>
       } catch (_) {}
     });
 
-    // Navigate to MainPage after splash duration
-    Future.delayed(const Duration(seconds: 3), () {
+    // Navigate to MainPage after splash duration using cancellable Timer
+    _navigationTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const MainPage()),
@@ -95,6 +98,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
+    _navigationTimer?.cancel();
     _iconController.dispose();
     _textController.dispose();
     _subtitleController.dispose();

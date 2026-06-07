@@ -2,10 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/shalat_schedule_response.dart';
 
-class ShalatDetailPage extends StatelessWidget {
+class ShalatDetailPage extends StatefulWidget {
   final ShalatDaySchedule shalatDaySchedule;
 
   const ShalatDetailPage({super.key, required this.shalatDaySchedule});
+
+  @override
+  State<ShalatDetailPage> createState() => _ShalatDetailPageState();
+}
+
+class _ShalatDetailPageState extends State<ShalatDetailPage> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,118 +34,127 @@ class ShalatDetailPage extends StatelessWidget {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Date header
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    colorScheme.primary,
-                    colorScheme.primary.withOpacity(0.85),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.calendar_today_rounded,
-                    size: 32,
-                    color: colorScheme.onPrimary,
+      body: Scrollbar(
+        controller: _scrollController,
+        thumbVisibility: true,
+        interactive: true,
+        thickness: 6.0,
+        radius: const Radius.circular(8.0),
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Date header
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.primary,
+                      colorScheme.primary.withOpacity(0.85),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    shalatDaySchedule.tanggal,
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.calendar_today_rounded,
+                      size: 32,
                       color: colorScheme.onPrimary,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.shalatDaySchedule.tanggal,
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onPrimary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // Prayer times list
-            Text(
-              'Waktu Shalat',
-              style: GoogleFonts.poppins(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onSurface,
+              // Prayer times list
+              Text(
+                'Waktu Shalat',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            _buildPrayerTimeCard(
-              'Imsak',
-              shalatDaySchedule.imsak,
-              context,
-              icon: Icons.free_breakfast,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Subuh',
-              shalatDaySchedule.subuh,
-              context,
-              icon: Icons.wb_sunny_rounded,
-              isHighlighted: true,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Terbit',
-              shalatDaySchedule.terbit,
-              context,
-              icon: Icons.wb_sunny_outlined,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Dhuha',
-              shalatDaySchedule.dhuha,
-              context,
-              icon: Icons.sunny_snowing,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Dzuhur',
-              shalatDaySchedule.dzuhur,
-              context,
-              icon: Icons.light_mode_rounded,
-              isHighlighted: true,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Ashar',
-              shalatDaySchedule.ashar,
-              context,
-              icon: Icons.wb_cloudy_rounded,
-              isHighlighted: true,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Maghrib',
-              shalatDaySchedule.maghrib,
-              context,
-              icon: Icons.nights_stay_rounded,
-              isHighlighted: true,
-            ),
-            const SizedBox(height: 8),
-            _buildPrayerTimeCard(
-              'Isya',
-              shalatDaySchedule.isya,
-              context,
-              icon: Icons.dark_mode_rounded,
-              isHighlighted: true,
-            ),
-          ],
+              _buildPrayerTimeCard(
+                'Imsak',
+                widget.shalatDaySchedule.imsak,
+                context,
+                icon: Icons.free_breakfast,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Subuh',
+                widget.shalatDaySchedule.subuh,
+                context,
+                icon: Icons.wb_sunny_rounded,
+                isHighlighted: true,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Terbit',
+                widget.shalatDaySchedule.terbit,
+                context,
+                icon: Icons.wb_sunny_outlined,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Dhuha',
+                widget.shalatDaySchedule.dhuha,
+                context,
+                icon: Icons.sunny_snowing,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Dzuhur',
+                widget.shalatDaySchedule.dzuhur,
+                context,
+                icon: Icons.light_mode_rounded,
+                isHighlighted: true,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Ashar',
+                widget.shalatDaySchedule.ashar,
+                context,
+                icon: Icons.wb_cloudy_rounded,
+                isHighlighted: true,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Maghrib',
+                widget.shalatDaySchedule.maghrib,
+                context,
+                icon: Icons.nights_stay_rounded,
+                isHighlighted: true,
+              ),
+              const SizedBox(height: 8),
+              _buildPrayerTimeCard(
+                'Isya',
+                widget.shalatDaySchedule.isya,
+                context,
+                icon: Icons.dark_mode_rounded,
+                isHighlighted: true,
+              ),
+            ],
+          ),
         ),
       ),
     );

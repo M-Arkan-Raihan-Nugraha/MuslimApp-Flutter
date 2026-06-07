@@ -15,21 +15,32 @@ class HadistDetailPage extends StatefulWidget {
 }
 
 class _HadistDetailPageState extends State<HadistDetailPage> {
+  final ScrollController _scrollController = ScrollController();
   static const int _pageSize = 50;
   int _currentPage = 1;
 
   @override
   void initState() {
     super.initState();
-    _loadHadists();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadHadists();
+    });
   }
 
-  void _loadHadists() {
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadHadists() async {
     final start = (_currentPage - 1) * _pageSize + 1;
     final end = (_currentPage * _pageSize).clamp(1, widget.book.available);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<HadistViewModel>().fetchHadists(widget.book.id, start, end);
-    });
+    await context.read<HadistViewModel>().fetchHadists(
+      widget.book.id,
+      start,
+      end,
+    );
   }
 
   int get _totalPages => (widget.book.available / _pageSize).ceil();
@@ -60,7 +71,10 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
         return AlertDialog(
           title: Text(
             'Lompat ke Hadits',
-            style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold),
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -77,7 +91,10 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                 items: List.generate(_totalPages, (index) {
                   final pageNum = index + 1;
                   final start = (pageNum - 1) * _pageSize + 1;
-                  final end = (pageNum * _pageSize).clamp(1, widget.book.available);
+                  final end = (pageNum * _pageSize).clamp(
+                    1,
+                    widget.book.available,
+                  );
                   return DropdownMenuItem<int>(
                     value: pageNum,
                     child: Text(
@@ -92,7 +109,10 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                   }
                 },
                 decoration: const InputDecoration(
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   isDense: true,
                 ),
               ),
@@ -134,10 +154,7 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
       appBar: AppBar(
         title: Text(
           widget.book.name,
-          style: GoogleFonts.poppins(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
+          style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
         ),
       ),
       body: Column(
@@ -168,7 +185,10 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                 GestureDetector(
                   onTap: _showJumpToPageDialog,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: colorScheme.primary,
                       borderRadius: BorderRadius.circular(20),
@@ -199,7 +219,9 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                           height: 40,
                           child: CircularProgressIndicator(
                             strokeWidth: 3,
-                            valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              colorScheme.primary,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -214,53 +236,65 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                     ),
                   )
                 : viewModel.error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.error_outline_rounded,
-                                size: 64,
-                                color: colorScheme.error,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Gagal memuat hadits',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                viewModel.error!,
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 13,
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              ElevatedButton(
-                                onPressed: _loadHadists,
-                                child: const Text('Coba Lagi'),
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            size: 64,
+                            color: colorScheme.error,
                           ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Gagal memuat hadits',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            viewModel.error!,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _loadHadists,
+                            child: const Text('Coba Lagi'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: () async {
+                      await _loadHadists();
+                    },
+                    child: Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      interactive: true,
+                      thickness: 6.0,
+                      radius: const Radius.circular(8.0),
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: () async {
-                          _loadHadists();
-                        },
-                        child: ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: viewModel.hadists.length,
-                          itemBuilder: (context, index) {
-                            final hadist = viewModel.hadists[index];
-                            return Container(
+                        padding: const EdgeInsets.all(16),
+                        cacheExtent: 3000.0,
+                        itemCount: viewModel.hadists.length,
+                        itemBuilder: (context, index) {
+                          final hadist = viewModel.hadists[index];
+                          return RepaintBoundary(
+                            child: Container(
                               margin: const EdgeInsets.only(bottom: 16),
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
@@ -279,13 +313,20 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                                 children: [
                                   // Number / Copy row
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color: colorScheme.secondary.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(12),
+                                          color: colorScheme.secondary
+                                              .withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
                                         child: Text(
                                           'No. ${hadist.number}',
@@ -297,19 +338,27 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                                         ),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.copy_rounded, size: 20),
+                                        icon: const Icon(
+                                          Icons.copy_rounded,
+                                          size: 20,
+                                        ),
                                         tooltip: 'Salin Hadits',
                                         onPressed: () {
                                           Clipboard.setData(
                                             ClipboardData(
-                                              text: 'Hadits ${widget.book.name} No. ${hadist.number}\n\n'
+                                              text:
+                                                  'Hadits ${widget.book.name} No. ${hadist.number}\n\n'
                                                   '${hadist.arab}\n\n'
                                                   'Artinya: "${hadist.translation}"',
                                             ),
                                           );
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
-                                              content: Text('Hadits berhasil disalin ke papan klip'),
+                                              content: Text(
+                                                'Hadits berhasil disalin ke papan klip',
+                                              ),
                                               duration: Duration(seconds: 1),
                                             ),
                                           );
@@ -344,15 +393,19 @@ class _HadistDetailPageState extends State<HadistDetailPage> {
                                     style: GoogleFonts.poppins(
                                       fontSize: 13,
                                       height: 1.6,
-                                      color: colorScheme.onSurface.withOpacity(0.85),
+                                      color: colorScheme.onSurface.withOpacity(
+                                        0.85,
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        },
                       ),
+                    ),
+                  ),
           ),
 
           // Pagination Bottom Controls

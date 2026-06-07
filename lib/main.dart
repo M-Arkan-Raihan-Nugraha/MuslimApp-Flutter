@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:muslim_app/firebase_options.dart';
 import 'package:muslim_app/repositories/shalat_repository.dart';
 import 'package:muslim_app/services/gemini_services.dart';
+import 'package:muslim_app/services/auth_service.dart';
+import 'package:muslim_app/services/firestore_service.dart';
+import 'package:muslim_app/viewmodels/auth_view_model.dart';
 import 'package:muslim_app/viewmodels/chat_view_model.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +20,9 @@ import 'viewmodels/asmaul_husna_view_model.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   await dotenv.load(fileName: '.env');
   // Prevent Google Fonts from downloading fonts at runtime in release mode.
   // This avoids crashes/delays when internet is slow or unavailable.
@@ -32,6 +40,11 @@ class MyApp extends StatelessWidget {
 
     return MultiProvider(
       providers: [
+        Provider(create: (_) => AuthService()),
+        Provider(create: (_) => FirestoreService()),
+        ChangeNotifierProvider(
+          create: (context) => AuthViewModel(context.read<AuthService>()),
+        ),
         ChangeNotifierProvider(create: (_) => ShalatViewModel(ShalatRepository())),
         ChangeNotifierProvider(create: (_) => QuranViewModel()),
         ChangeNotifierProvider(create: (_) => DoaViewModel()),

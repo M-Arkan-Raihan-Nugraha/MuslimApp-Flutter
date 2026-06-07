@@ -250,6 +250,7 @@ class _KiblatPageState extends State<KiblatPage> {
         }
 
         return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
           child: Padding(
             padding: const EdgeInsets.all(24.0),
             child: Column(
